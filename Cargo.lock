@@ -96,6 +96,8 @@ version = "1.0.0"
 dependencies = [
  "bullet-trainer",
  "bullet_lib",
+ "oorandom",
+ "sfbinpack",
 ]
 
 [[package]]

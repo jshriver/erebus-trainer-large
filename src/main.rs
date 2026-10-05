@@ -26,6 +26,9 @@
 //!   ./erebus-trainer-large <data.binpack | data-dir> [more paths...]
 
 mod inputs;
+mod loader;
+
+use std::sync::{Arc, Mutex};
 
 use bullet_lib::{
     game::{
@@ -35,7 +38,7 @@ use bullet_lib::{
     },
     trainer::schedule::lr::{self, LrScheduler},
     value::{
-        loader::sfbinpack::{MoveType, PieceType, SfBinpackLoader, TrainingDataEntry},
+        loader::sfbinpack::{MoveType, PieceType, TrainingDataEntry},
         save::save_to_checkpoint,
     },
 };
@@ -49,6 +52,7 @@ use bullet_trainer::{
     run::{DefaultDevice, TrainingSchedule, TrainingSteps, train},
 };
 use inputs::{HalfKAv2Hm, PawnPawnInputs};
+use loader::ResumableBinpackLoader;
 
 // ========================= CONFIG -- edit, then `cargo build --release` =========================
 
@@ -131,7 +135,7 @@ const MAX_SUPERBATCH: usize = 5000;
 
 const BATCH_SIZE: usize = 16_384;
 const BATCHES_PER_SUPERBATCH: usize = 6104;
-const SAVE_RATE: usize = 10;
+const SAVE_RATE: usize = 5;
 
 const LR_START: f32 = 0.001;
 const LR_FINAL: f32 = 2.5e-6;
@@ -200,16 +204,20 @@ fn collect_data_paths(inputs: &[String]) -> Vec<String> {
     out
 }
 
+fn basename(path: &str) -> String {
+    std::path::Path::new(path)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_string())
+}
+
 fn count_for(path: &str) -> u64 {
     let side = format!("{path}.count");
     if let Ok(raw) = std::fs::read_to_string(&side) {
         let digits: String = raw.chars().filter(char::is_ascii_digit).collect();
         return digits.parse().unwrap_or_else(|e| die(format!("{side}: no valid integer ({e})")));
     }
-    let base = std::path::Path::new(path)
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| path.to_string());
+    let base = basename(path);
     match POSITION_COUNTS.iter().find(|(name, _)| *name == base) {
         Some((_, n)) => *n,
         None => die(format!(
@@ -236,6 +244,16 @@ fn write_session(began: usize, stop: usize) {
     if let Err(e) = std::fs::write(session_path(), format!("{began} {stop}\n")) {
         eprintln!("erebus-trainer-large: warning: could not write session file: {e}");
     }
+}
+
+/// Saved next to each checkpoint: "<binpack basename> <byte offset>" of the next
+/// unread chunk, so a resume can seek straight back to where the loader was.
+const DATA_POS_FILE: &str = "data_pos";
+
+fn read_data_pos(checkpoint_dir: &str) -> Option<(String, u64)> {
+    let s = std::fs::read_to_string(format!("{checkpoint_dir}/{DATA_POS_FILE}")).ok()?;
+    let (name, offset) = s.trim().rsplit_once(' ')?;
+    Some((name.to_string(), offset.parse().ok()?))
 }
 
 fn latest_checkpoint() -> Option<(String, usize)> {
@@ -293,13 +311,27 @@ fn main() {
 
     // ---- data files ----
     let mut files = collect_data_paths(&args);
-    if ROTATE_DATA_EACH_SESSION && files.len() > 1 {
-        let k = (start_superbatch - 1) % files.len();
-        if k != 0 {
-            files.rotate_left(k);
-            println!("rotated {} file(s) left by {k}", files.len());
+    let saved_pos = resume_dir.as_deref().and_then(read_data_pos).and_then(|(name, offset)| {
+        files.iter().position(|f| basename(f) == name).map(|i| (i, offset))
+    });
+    let start_pos = if let Some((i, offset)) = saved_pos {
+        // Continue where the loader was.  Rotation is skipped: the file order is a
+        // cycle either way, so starting at file i keeps the same sequence.
+        println!("resume: data position {} @ byte {offset}", files[i]);
+        (i, offset)
+    } else {
+        if resume_dir.is_some() {
+            println!("resume: no saved data position for these files -> reading them from the start");
         }
-    }
+        if ROTATE_DATA_EACH_SESSION && files.len() > 1 {
+            let k = (start_superbatch - 1) % files.len();
+            if k != 0 {
+                files.rotate_left(k);
+                println!("rotated {} file(s) left by {k}", files.len());
+            }
+        }
+        (0, 0)
+    };
     let paths_ref: Vec<&str> = files.iter().map(String::as_str).collect();
 
     // ---- plan + session window ----
@@ -496,8 +528,15 @@ fn main() {
     );
 
     // ---- training loop ----
-    let data_loader =
-        SfBinpackLoader::new_concat_multiple(&paths_ref, SHUFFLE_BUFFER_MB, DATA_THREADS, filter);
+    let read_progress = Arc::new(Mutex::new(start_pos));
+    let data_loader = ResumableBinpackLoader::new(
+        &paths_ref,
+        start_pos,
+        SHUFFLE_BUFFER_MB,
+        DATA_THREADS,
+        filter,
+        read_progress.clone(),
+    );
 
     let schedule = TrainingSchedule {
         steps: TrainingSteps {
@@ -527,6 +566,11 @@ fn main() {
                 let path = format!("{OUT_DIR}/{name}");
                 std::fs::create_dir_all(&path).ok();
                 save_to_checkpoint(optimiser, &saved_format, &path);
+                let (idx, offset) = *read_progress.lock().unwrap();
+                let pos = format!("{} {offset}\n", basename(&files[idx]));
+                if let Err(e) = std::fs::write(format!("{path}/{DATA_POS_FILE}"), pos) {
+                    eprintln!("erebus-trainer-large: warning: could not write data position: {e}");
+                }
                 println!("Saved [{name}]");
             }
         },

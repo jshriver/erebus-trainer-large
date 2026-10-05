@@ -11,6 +11,9 @@ path = "src/main.rs"
 [dependencies]
 bullet_lib     = { git = "https://github.com/jw1912/bullet", branch = "main" }
 bullet-trainer = { git = "https://github.com/jw1912/bullet", branch = "main" }
+# Same versions bullet_lib uses, for the resumable loader in src/loader.rs.
+sfbinpack      = "0.6.4"
+oorandom       = "11.1.5"
 
 [features]
 # CUDA on by default -- this trainer only ever runs on NVIDIA hardware.

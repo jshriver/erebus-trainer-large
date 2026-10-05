@@ -77,7 +77,7 @@ All hyper-parameters are compile-time constants in the `CONFIG` block at the top
 | `TOTAL_PASSES` | 1.0 | Full passes over the corpus |
 | `BATCH_SIZE` | 16,384 | Positions per batch |
 | `BATCHES_PER_SUPERBATCH` | 6,104 | Batches per superbatch (~100M positions) |
-| `SAVE_RATE` | 10 | Checkpoint every N superbatches |
+| `SAVE_RATE` | 5 | Checkpoint every N superbatches (and always at the end of a session) |
 | `LR_START` / `LR_FINAL` | 1e-3 / 2.5e-6 | Cosine LR schedule bounds |
 | `WDL_START` / `WDL_END` | 0.2 / 0.6 | Linear WDL blend across the full plan |
 | `DATA_THREADS` | 8 | Parallel data loading threads |
@@ -96,6 +96,8 @@ EREBUS_LARGE_END_SB=200 ./target/release/erebus-trainer-large /data/binpacks/
 
 Training resumes automatically from the latest checkpoint found in `checkpoints/`. A `.session` file tracks the active session window and is cleaned up on normal completion.
 
+Each checkpoint also records the data loader's position (`data_pos`: binpack name + byte offset). On resume, if that binpack is among the paths passed, reading continues from that offset instead of restarting the file. The saved offset marks the end of the last shuffle buffer that was fully trained, so a resume never skips data; it re-reads at most one shuffle buffer (~67M positions at the default 4096 MiB). Checkpoints without `data_pos`, or a binpack that isn't passed this run, read from the start as before.
+
 ## Checkpoints
 
 Saved to `checkpoints/erebus-large-<N>/`:
@@ -105,3 +107,4 @@ Saved to `checkpoints/erebus-large-<N>/`:
 | `quantised.bin` | Quantised network ready for the engine |
 | `raw.bin` | Full-precision weights |
 | `optimiser_state/` | Adam optimiser state for seamless resume |
+| `data_pos` | Data loader position for resume |
