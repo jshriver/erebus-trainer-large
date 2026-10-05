@@ -144,7 +144,7 @@ const EVAL_SCALE: f32 = 400.0;
 
 const ROTATE_DATA_EACH_SESSION: bool = true;
 
-const DATA_THREADS: usize = 8;
+const DATA_THREADS: usize = 4;
 const SHUFFLE_BUFFER_MB: usize = 4096;
 
 // =============================================================================================
