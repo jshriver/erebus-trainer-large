@@ -463,7 +463,7 @@ fn main() {
     optimiser.set_params_for_weight("l0f",  l0_clip);
 
     if let Some(dir) = &resume_dir {
-        optimiser.load_from_checkpoint(dir)
+        optimiser.load_from_checkpoint(&format!("{dir}/optimiser_state"))
             .unwrap_or_else(|e| die(format!("load checkpoint '{dir}': {e:?}")));
     }
 
