@@ -77,7 +77,7 @@ All hyper-parameters are compile-time constants in the `CONFIG` block at the top
 | `TOTAL_PASSES` | 1.0 | Full passes over the corpus |
 | `BATCH_SIZE` | 16,384 | Positions per batch |
 | `BATCHES_PER_SUPERBATCH` | 6,104 | Batches per superbatch (~100M positions) |
-| `SAVE_RATE` | 5 | Checkpoint every N superbatches (and always at the end of a session) |
+| `SAVE_RATE` | 2 | Checkpoint every N superbatches (and always at the end of a session) |
 | `LR_START` / `LR_FINAL` | 1e-3 / 2.5e-6 | Cosine LR schedule bounds |
 | `WDL_START` / `WDL_END` | 0.2 / 0.6 | Linear WDL blend across the full plan |
 | `DATA_THREADS` | 8 | Parallel data loading threads |

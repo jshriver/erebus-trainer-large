@@ -135,7 +135,7 @@ const MAX_SUPERBATCH: usize = 5000;
 
 const BATCH_SIZE: usize = 16_384;
 const BATCHES_PER_SUPERBATCH: usize = 6104;
-const SAVE_RATE: usize = 5;
+const SAVE_RATE: usize = 2;
 
 const LR_START: f32 = 0.001;
 const LR_FINAL: f32 = 2.5e-6;
